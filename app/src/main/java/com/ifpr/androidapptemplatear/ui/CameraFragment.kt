@@ -1,10 +1,8 @@
+
 package com.ifpr.androidapptemplatear.ui
 
-import androidx.fragment.app.Fragment
-import com.ifpr.androidapptemplatear.R
-import android.content.Context
+import android.Manifest
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -12,88 +10,108 @@ import android.view.ViewGroup
 import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
+import com.ifpr.androidapptemplatear.R
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
 import com.google.ar.core.Config
-import com.ifpr.androidapptemplatear.databinding.FragmentCameraBinding
 import io.github.sceneview.ar.ArSceneView
 import io.github.sceneview.ar.node.ArModelNode
 import io.github.sceneview.ar.node.PlacementMode
 import io.github.sceneview.math.Position
-import okio.IOException
-import java.io.File
+import java.io.IOException
 
 class CameraFragment : Fragment() {
 
     private lateinit var sceneView: ArSceneView
-    private lateinit var modelNode: ArModelNode
     private lateinit var placeButton: ExtendedFloatingActionButton
-
     private lateinit var sharedViewModel: SharedModelViewModel
 
-    private val CAMERA_PERMISSION_CODE = 1001
+    private var modelNode: ArModelNode? = null
+    private var currentModelFile = "flower.glb"
+    private var modelPlaced = false
+    private var loadingModel = false
 
-    private var currentModelFile: String = "neutrofilo.glb"
+    private val cameraPermissionCode = 1001
 
-    private var _binding: FragmentCameraBinding? = null
-
-    // This property is only valid between onCreateView and
-    // onDestroyView.
-    private val binding get() = _binding!!
+    private val availableModels = listOf(
+        "flower.glb",
+        "neutrofilo.glb",
+        "orquidea.glb",
+        "arvore1.glb"
+    )
 
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        super.onCreate(savedInstanceState)
-        sharedViewModel = ViewModelProvider(requireActivity())[SharedModelViewModel::class.java]
-        sharedViewModel.selectedModel.observe(viewLifecycleOwner) { path ->
-            loadModel(path)
-        }
-
-        val view = inflater.inflate(R.layout.fragment_camera, container, false)
-
-        sceneView = view.findViewById<ArSceneView?>(R.id.sceneView).apply {
-            lightEstimationMode = Config.LightEstimationMode.DISABLED
-        }
-
-        placeButton = view.findViewById(R.id.place)
-
-        placeButton.setOnClickListener {
-            placeModel()
-        }
-
-        return view
-    }
-
-    override fun onDestroyView() {
-        super.onDestroyView()
-        _binding = null
+        return inflater.inflate(R.layout.fragment_camera, container, false)
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        sharedViewModel =
+            ViewModelProvider(requireActivity())[SharedModelViewModel::class.java]
+
+        sceneView = view.findViewById(R.id.sceneView)
+        sceneView.lightEstimationMode = Config.LightEstimationMode.DISABLED
+
+        placeButton = view.findViewById(R.id.place)
+        placeButton.text = "Posicionar objeto"
+
+        placeButton.setOnClickListener {
+            handleObjectButton()
+        }
+
+        sharedViewModel.selectedModel.observe(viewLifecycleOwner) { selected ->
+            if (!selected.isNullOrBlank()) {
+                loadModel(selected)
+            }
+        }
+
         checkCameraPermission()
     }
 
-    private fun placeModel() {
-        modelNode.anchor()
-        modelNode.isEditable = true
-        modelNode.isScaleEditable = false
+    private fun handleObjectButton() {
+        val node = modelNode
 
-        sceneView.planeRenderer.isVisible = false
+        if (node == null || loadingModel) {
+            return
+        }
+
+        if (!modelPlaced) {
+            node.anchor()
+            node.isEditable = true
+            node.isScaleEditable = false
+
+            modelPlaced = true
+            placeButton.text = "Coletar item"
+            sceneView.planeRenderer.isVisible = false
+        } else {
+            sharedViewModel.collectItem(currentModelFile)
+
+            Toast.makeText(
+                requireContext(),
+                "Você encontrou: ${currentModelFile.removeSuffix(".glb")}",
+                Toast.LENGTH_SHORT
+            ).show()
+
+            loadRandomModel()
+        }
     }
 
     private fun checkCameraPermission() {
-        if (ContextCompat.checkSelfPermission(requireContext(), android.Manifest.permission.CAMERA)
-            != PackageManager.PERMISSION_GRANTED
+        if (ContextCompat.checkSelfPermission(
+                requireContext(),
+                Manifest.permission.CAMERA
+            ) != PackageManager.PERMISSION_GRANTED
         ) {
             ActivityCompat.requestPermissions(
                 requireActivity(),
-                arrayOf(android.Manifest.permission.CAMERA),
-                CAMERA_PERMISSION_CODE
+                arrayOf(Manifest.permission.CAMERA),
+                cameraPermissionCode
             )
         } else {
             initAR()
@@ -101,58 +119,94 @@ class CameraFragment : Fragment() {
     }
 
     override fun onRequestPermissionsResult(
-        requestCode: Int, permissions: Array<out String>, grantResults: IntArray
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == CAMERA_PERMISSION_CODE && grantResults.isNotEmpty() &&
+
+        if (requestCode == cameraPermissionCode &&
+            grantResults.isNotEmpty() &&
             grantResults[0] == PackageManager.PERMISSION_GRANTED
         ) {
             initAR()
-        } else {
-            Toast.makeText(requireContext(), "Permissão de câmera negada", Toast.LENGTH_LONG).show()
+        } else if (requestCode == cameraPermissionCode) {
+            Toast.makeText(
+                requireContext(),
+                "A câmera é necessária para explorar o jardim.",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 
     private fun initAR() {
-        loadModel(currentModelFile)
+        val selected = sharedViewModel.selectedModel.value
+
+        if (!selected.isNullOrBlank()) {
+            loadModel(selected)
+        } else {
+            loadRandomModel()
+        }
+    }
+
+    private fun loadRandomModel() {
+        val nextModel = availableModels.random()
+        loadModel(nextModel)
     }
 
     private fun loadModel(fileName: String) {
-        try {
-            sceneView.removeChild(modelNode)
-        } catch (e: Exception) {
+        if (!isAdded || loadingModel) return
 
+        try {
+            requireContext().assets.open(fileName).use { }
+        } catch (e: IOException) {
+            Toast.makeText(
+                requireContext(),
+                "Não foi possível encontrar $fileName nos assets.",
+                Toast.LENGTH_LONG
+            ).show()
+            return
         }
 
-        modelNode = ArModelNode(sceneView.engine, PlacementMode.INSTANT).apply {
-            loadModelGlbAsync(
-                glbFileLocation = getFilePath(requireContext(),fileName),
-                centerOrigin = Position(0f,0f,1f),
+        loadingModel = true
 
-            ) {
-                sceneView.planeRenderer.isVisible = true
-            }
-            // Permitir interação com o modelo
+        modelNode?.let { sceneView.removeChild(it) }
+        modelNode = null
+
+        currentModelFile = fileName
+        modelPlaced = false
+        placeButton.text = "Posicionar objeto"
+        sceneView.planeRenderer.isVisible = true
+
+        val newNode = ArModelNode(
+            sceneView.engine,
+            PlacementMode.INSTANT
+        ).apply {
             isEditable = true
             isScaleEditable = false
-
         }
 
-        sceneView.addChild(modelNode)
+        modelNode = newNode
+        sceneView.addChild(newNode)
+
+        newNode.loadModelGlbAsync(
+            glbFileLocation = fileName,
+            centerOrigin = Position(0f, 0f, 1f)
+        ) {
+            if (!isAdded) return@loadModelGlbAsync
+
+            loadingModel = false
+            placeButton.text = "Posicionar objeto"
+            sceneView.planeRenderer.isVisible = true
+        }
     }
 
-    private fun getFilePath(context: Context?, fileName: String): String {
-        try {
-            context?.assets?.open(fileName)?.close() // Tenta abrir o arquivo dos assets
-            return fileName // Se abrir sem erro, presume-se que está nos assets
-        } catch (e: IOException) {
-            // Arquivo não encontrado nos assets, agora vamos procurar no filesDir
-            val internalFile = File(context?.filesDir, fileName)
-            if (internalFile.exists()) {
-                return  Uri.fromFile(internalFile).toString()
-            } else {
-                return "Arquivo não encontrado em assets nem em filesDir: $fileName"
-            }
+    override fun onDestroyView() {
+        modelNode?.let {
+            sceneView.removeChild(it)
         }
+
+        modelNode = null
+        super.onDestroyView()
     }
 }
