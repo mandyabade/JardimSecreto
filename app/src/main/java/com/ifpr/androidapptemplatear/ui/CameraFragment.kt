@@ -14,6 +14,7 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
@@ -137,6 +138,7 @@ class CameraFragment : Fragment() {
         if (!selectedModel.isNullOrBlank()) {
             currentModelFile = selectedModel
         } else {
+            currentModelFile = availableModels().randomOrNull() ?: currentModelFile
             sharedViewModel.selectModel(currentModelFile)
         }
 
@@ -153,11 +155,20 @@ class CameraFragment : Fragment() {
 
                 Mode.CAMERA,
                 Mode.STATIC -> {
-                    startPreview(useCamera = mode == Mode.CAMERA)
+                    collectCurrentModel()
                 }
 
                 Mode.CHECKING -> Unit
             }
+        }
+
+        placeButton?.setOnLongClickListener {
+            when (mode) {
+                Mode.AR -> if (anchorNode != null) loadModel()
+                Mode.CAMERA, Mode.STATIC -> startPreview(useCamera = mode == Mode.CAMERA)
+                Mode.CHECKING -> Unit
+            }
+            true
         }
 
         checkAvailability()
@@ -205,7 +216,7 @@ class CameraFragment : Fragment() {
 
         overlay = layer
 
-        parent.findViewById<View>(R.id.titleImage)?.bringToFront()
+        parent.findViewById<View>(R.id.explorationTitle)?.bringToFront()
         placeButton?.bringToFront()
     }
 
@@ -459,14 +470,14 @@ class CameraFragment : Fragment() {
         mode = if (useCamera) Mode.CAMERA else Mode.STATIC
 
         placeButton?.apply {
-            text = "Centralizar"
+            text = "Coletar item"
             isEnabled = false
         }
 
         statusText?.text = if (useCamera) {
-            "Modelo sobre a câmera, sem fixação no ambiente."
+            "Modelo sobre a câmera. Segure o botão para centralizar."
         } else {
-            "Visualização 3D sem câmera."
+            "Visualização 3D sem câmera. Segure o botão para centralizar."
         }
 
         host.setBackgroundColor(Color.rgb(45, 55, 65))
@@ -673,8 +684,15 @@ class CameraFragment : Fragment() {
 
                 val node = ModelNode(
                     modelInstance = instance,
-                    scaleToUnits = if (isAr) 0.5f else 1.5f,
-                    centerOrigin = Position(0f, 0f, 0f)
+                    scaleToUnits = if (isAr) 0.5f else 1.5f
+                )
+
+                // SceneView 2.2.1 does not account for the asset's bounding-box center.
+                // Center previews and place the bottom of AR models on the surface.
+                node.position = Position(
+                    -node.center.x * node.scale.x,
+                    (-node.center.y + if (isAr) node.halfExtent.y else 0f) * node.scale.y,
+                    -node.center.z * node.scale.z
                 )
 
                 node.isEditable = true
@@ -703,7 +721,7 @@ class CameraFragment : Fragment() {
         val ar = arView ?: return
 
         if (anchorNode != null) {
-            loadModel()
+            collectCurrentModel()
             return
         }
 
@@ -723,15 +741,40 @@ class CameraFragment : Fragment() {
             placementHit = null
 
             placeButton?.apply {
-                text = "Reposicionar"
+                text = "Coletar item"
                 isEnabled = true
             }
 
-            statusText?.text = "Objeto posicionado no ambiente."
+            statusText?.text = "Objeto posicionado. Segure o botão para reposicionar."
 
         } catch (_: Exception) {
             statusText?.text =
                 "Não foi possível posicionar. Tente outra superfície."
+        }
+    }
+
+    private fun availableModels(): List<String> =
+        context?.assets?.list("").orEmpty()
+            .filter { it.endsWith(".glb", ignoreCase = true) }
+
+    private fun collectCurrentModel() {
+        if (modelNode == null) return
+        sharedViewModel.collectItem(currentModelFile)
+        Toast.makeText(
+            requireContext(),
+            "Você encontrou: ${currentModelFile.substringBeforeLast('.').replace('_', ' ')}",
+            Toast.LENGTH_SHORT
+        ).show()
+
+        val models = availableModels()
+        val next = models.filter { it != currentModelFile }.randomOrNull()
+            ?: models.randomOrNull() ?: return
+        if (next == currentModelFile) {
+            loadModel()
+        } else {
+            currentModelFile = next
+            sharedViewModel.selectModel(next)
+            loadModel()
         }
     }
 

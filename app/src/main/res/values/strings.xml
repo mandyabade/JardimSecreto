@@ -1,14 +1,13 @@
 <resources>
-    <string name="app_name">Android App Template AR</string>
-    <string name="action_settings">Settings</string>
-    <!-- Strings used for fragments for navigation -->
-    <string name="first_fragment_label">First Fragment</string>
-    <string name="second_fragment_label">Second Fragment</string>
-    <string name="next">Next</string>
-    <string name="previous">Previous</string>
-    <string name="template_ar">Template AR</string>
-    <string name="thumbnail">example</string>
-    <string name="camera">camera</string>
-    <string name="change">change</string>
-    <string name="profile">profile</string>
+    <string name="app_name">Jardim Secreto</string>
+    <string name="action_settings">Configurações</string>
+    <string name="first_fragment_label">Primeira tela</string>
+    <string name="second_fragment_label">Segunda tela</string>
+    <string name="next">Próximo</string>
+    <string name="previous">Anterior</string>
+    <string name="template_ar">Jardim Encantado</string>
+    <string name="thumbnail">Jardim</string>
+    <string name="camera">Explorar</string>
+    <string name="change">Inventário</string>
+    <string name="profile">Perfil</string>
 </resources>
