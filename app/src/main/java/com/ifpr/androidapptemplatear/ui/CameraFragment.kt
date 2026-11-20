@@ -12,9 +12,11 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import android.media.MediaPlayer
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
@@ -65,6 +67,9 @@ class CameraFragment : Fragment() {
     private var placeButton: ExtendedFloatingActionButton? = null
     private var statusText: TextView? = null
     private var overlay: View? = null
+    private var ambientButton: Button? = null
+    private var ambientPlayer: MediaPlayer? = null
+    private var ambientEnabled = true
 
     private var sceneView: SceneView? = null
     private var arView: ARSceneView? = null
@@ -192,6 +197,17 @@ class CameraFragment : Fragment() {
         }
 
         panel.addView(statusText)
+
+        ambientButton = Button(requireContext()).apply {
+            text = if (ambientEnabled) "♪ Som ambiente: ligado" else "♪ Som ambiente: desligado"
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.TRANSPARENT)
+            setOnClickListener {
+                ambientEnabled = !ambientEnabled
+                updateAmbientSound()
+            }
+        }
+        panel.addView(ambientButton)
 
         layer.addView(
             panel,
@@ -866,6 +882,36 @@ class CameraFragment : Fragment() {
         container?.removeAllViews()
     }
 
+    private fun updateAmbientSound() {
+        ambientButton?.text = if (ambientEnabled) {
+            "♪ Som ambiente: ligado"
+        } else {
+            "♪ Som ambiente: desligado"
+        }
+        if (ambientEnabled && viewLifecycleOwner.lifecycle.currentState
+                .isAtLeast(Lifecycle.State.RESUMED)) {
+            if (ambientPlayer == null) {
+                ambientPlayer = MediaPlayer.create(requireContext(), R.raw.ambient_garden)?.apply {
+                    isLooping = true
+                    setVolume(0.35f, 0.35f)
+                }
+            }
+            ambientPlayer?.start()
+        } else {
+            ambientPlayer?.pause()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (view != null) updateAmbientSound()
+    }
+
+    override fun onPause() {
+        ambientPlayer?.pause()
+        super.onPause()
+    }
+
     private fun fullSize() = FrameLayout.LayoutParams(
         ViewGroup.LayoutParams.MATCH_PARENT,
         ViewGroup.LayoutParams.MATCH_PARENT
@@ -880,6 +926,8 @@ class CameraFragment : Fragment() {
         availabilityJob = null
 
         clearScene()
+        ambientPlayer?.release()
+        ambientPlayer = null
 
         overlay?.let {
             (it.parent as? ViewGroup)?.removeView(it)
@@ -888,6 +936,7 @@ class CameraFragment : Fragment() {
         overlay = null
         statusText = null
         placeButton = null
+        ambientButton = null
         container = null
 
         pendingAr = false
